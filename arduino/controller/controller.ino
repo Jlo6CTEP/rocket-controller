@@ -4,18 +4,43 @@
 #include <SoftwareSerial.h>
 #include <Wire.h>
 
+#define ENGINE_START 5 //зажигание
+#define CHUTE_DEPLOY 6 // парашют
+#define BATTERY_VOLTAGE A2 // напряжение на батарейке
+#define ENGINE_CHECK 3 // проверка двигателей
+#define GND 2 
 #define g 9.81
 #define magnetometer_cal 0.06
+#define RX 8
+#define TX 9
+#define THRESHOLD_VOLTAGE 4.2
 MPU9255 mpu;
 File dataFile;
-SoftwareSerial mySerial(8, 9);
+SoftwareSerial mySerial(RX, TX);
 unsigned long current_time, start_time, delay_time;
 float temperature, altitude, pressure;
 iarduino_Pressure_BMP sensor; 
 
+bool check_rokkit() {
+  if (analogRead(BATTERY_VOLTAGE) / 1023 * 5 < THRESHOLD_VOLTAGE) {
+    return false;
+  } else if (digitalRead(ENGINE_CHECK) == 0) {
+    return false;
+  } else {
+    return true;
+  }
+}
 
 void setup() {
+  pinMode(CHUTE_DEPLOY, OUTPUT);
+  pinMode(ENGINE_START, OUTPUT); //мощно
+  pinMode(BATTERY_VOLTAGE, INPUT); //battery
+  pinMode(ENGINE_CHECK, INPUT); //check ignitor
+  pinMode(GND, OUTPUT);
+  digitalWrite(GND, LOW);
   Serial.begin(2000000);
+  Serial.print(analogRead(A2));
+  Serial.print(digitalRead(3));
   mySerial.begin(1200);
   sensor.begin(); 
   Serial.print(F("Initializing SD card...\n"));
@@ -39,11 +64,14 @@ void setup() {
     while (!mySerial.available()) {}
     String line = read_from_bluetooth();
     clean_buffer();
-    if (line != F("11511697114116")) {
+    if (line != F("49")) {
       Serial.print(line + "\n");
     } else {
       done = false;
     }
+  }
+  if (!check_rokkit()) {
+    Serial.println("Все херово");
   }
   current_time = millis();
   start_time = millis();
@@ -51,15 +79,16 @@ void setup() {
 
 void loop() {
   update_data();
-  Serial.print("Accel: "); 
-  Serial.print(String(process_acceleration(mpu.ax,scale_2g)) + " "); Serial.print(String(process_acceleration(mpu.ay,scale_2g)) + " "); Serial.print(String(process_acceleration(mpu.az,scale_2g)));
-  Serial.print("  Gyro: "); 
-  Serial.print(String(process_angular_velocity(mpu.gx,scale_250dps)) + " "); Serial.print(String(process_angular_velocity(mpu.gy,scale_250dps)) + " "); Serial.print(String(process_angular_velocity(mpu.gz,scale_250dps)));
-  Serial.print("  Mag: "); 
-  Serial.print(String(process_magnetic_flux(mpu.mx,mpu.mx_sensitivity)) + " "); Serial.print(String(process_magnetic_flux(mpu.my,mpu.my_sensitivity)) + " "); Serial.print(String(process_magnetic_flux(mpu.mz,mpu.mz_sensitivity)));
-  Serial.print("  Temp: "); Serial.print(temperature);
-  Serial.print("  Press: "); Serial.print(pressure);
-  Serial.print("  Alt: "); Serial.println(altitude);
+  Serial.println("vavadh");
+//  Serial.print("Accel: "); 
+//  Serial.print(String(process_acceleration(mpu.ax,scale_2g)) + " "); Serial.print(String(process_acceleration(mpu.ay,scale_2g)) + " "); Serial.print(String(process_acceleration(mpu.az,scale_2g)));
+//  Serial.print("  Gyro: "); 
+//  Serial.print(String(process_angular_velocity(mpu.gx,scale_250dps)) + " "); Serial.print(String(process_angular_velocity(mpu.gy,scale_250dps)) + " "); Serial.print(String(process_angular_velocity(mpu.gz,scale_250dps)));
+//  Serial.print("  Mag: "); 
+//  Serial.print(String(process_magnetic_flux(mpu.mx,mpu.mx_sensitivity)) + " "); Serial.print(String(process_magnetic_flux(mpu.my,mpu.my_sensitivity)) + " "); Serial.print(String(process_magnetic_flux(mpu.mz,mpu.mz_sensitivity)));
+//  Serial.print("  Temp: "); Serial.print(temperature);
+//  Serial.print("  Press: "); Serial.print(pressure);
+//  Serial.print("  Alt: "); Serial.println(altitude);
   write_to_sd();
   if (millis() - start_time > 30000) {
     dataFile.close();
