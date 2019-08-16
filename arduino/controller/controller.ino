@@ -17,16 +17,9 @@ File dataFile;
 bool sd_is_working = false;
 SoftwareSerial mySerial(RX, TX);
 unsigned long current_time, start_time, delay_time;
-float temperature, altitude, pressure;
+float temperature, altitude, pressure, max_altitude;
 iarduino_Pressure_BMP sensor; 
 MPU9255 mpu;
-
-int check_rokkit() {
-  Serial.print(analogRead(BATTERY_VOLTAGE));
-  if (analogRead(BATTERY_VOLTAGE) / 1023.0 * 5.0 < THRESHOLD_VOLTAGE) return 1;
-  else if (!digitalRead(ENGINE_CHECK)) return 2;
-  else return 0;
-}
 
 void setup() {
   //initialization pins
@@ -80,10 +73,10 @@ void setup() {
     }
   
     //checking rokkit
-    if (check_rokkit() == 1) {
+    if (analogRead(BATTERY_VOLTAGE) / 1023.0 * 5.0 < THRESHOLD_VOLTAGE) {
       mySerial.write("1"); //low voltage
       Serial.println(F("Low voltage\nTry again"));
-    } else if (check_rokkit() == 2) {
+    } else if (!digitalRead(ENGINE_CHECK)) {
       mySerial.write("2"); //engine broken
       Serial.println(F("Engine is broken\nTry again"));
     } else if (!sd_is_working) {
@@ -96,10 +89,11 @@ void setup() {
       Serial.println(F("Rocket launched"));
     }
   }
+  
   //getting time
   current_time = millis();
   start_time = millis();
-  digitalWrite(ENGINE_START, HIGH);
+  //digitalWrite(ENGINE_START, HIGH);
 }
 
 void loop() {
@@ -114,15 +108,15 @@ void loop() {
   Serial.print("  Press: "); Serial.print(pressure);
   Serial.print("  Alt: "); Serial.println(altitude);
   write_to_sd();
-  if (millis() - start_time > 30000) {
-    dataFile.close();
-    Serial.println("1");
-    digitalWrite(HEADLIGHT, HIGH);
-    delay(100000);
-  }
-  if (millis() - start_time > 10000) {
-    digitalWrite(ENGINE_START, LOW);
-  }
+//  if (millis() - start_time > 30000) {
+//    dataFile.close();
+//    Serial.println("1");
+//    digitalWrite(HEADLIGHT, HIGH);
+//    delay(100000);
+//  }
+//  if (millis() - start_time > 10000) {
+//    digitalWrite(ENGINE_START, LOW);
+//  }
   delay(400);
 }
 
@@ -134,6 +128,11 @@ void update_data() {
   temperature = sensor.temperature;
   pressure = sensor.pressure;
   altitude = sensor.altitude;
+  if (altitude > max_altitude) {
+    max_altitude = altitude;
+  } else if (max_altitude - altitude >= 1.5) {
+    digitalWrite(HEADLIGHT, HIGH);
+  }
   delay_time = millis() - current_time;
   current_time = millis();
 }
