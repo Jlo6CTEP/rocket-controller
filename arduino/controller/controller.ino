@@ -4,7 +4,7 @@
 #include <SoftwareSerial.h>
 
 #define ENGINE_START 5 //зажигание
-#define CHUTE_DEPLOY 6 //парашют
+#define HEADLIGHT 6 //парашют
 #define BATTERY_VOLTAGE A2 //напряжение на батарейке
 #define ENGINE_CHECK 3 //проверка двигателей
 #define GND 2 
@@ -14,6 +14,7 @@
 #define TX 9
 #define THRESHOLD_VOLTAGE 4.2
 File dataFile;
+bool sd_is_working = false;
 SoftwareSerial mySerial(RX, TX);
 unsigned long current_time, start_time, delay_time;
 float temperature, altitude, pressure;
@@ -21,14 +22,15 @@ iarduino_Pressure_BMP sensor;
 MPU9255 mpu;
 
 int check_rokkit() {
-  if (analogRead(BATTERY_VOLTAGE) / 1023 * 5 < THRESHOLD_VOLTAGE) return 1;
+  Serial.print(analogRead(BATTERY_VOLTAGE));
+  if (analogRead(BATTERY_VOLTAGE) / 1023.0 * 5.0 < THRESHOLD_VOLTAGE) return 1;
   else if (!digitalRead(ENGINE_CHECK)) return 2;
   else return 0;
 }
 
 void setup() {
   //initialization pins
-  pinMode(CHUTE_DEPLOY, OUTPUT);
+  pinMode(HEADLIGHT, OUTPUT);
   pinMode(ENGINE_START, OUTPUT);
   pinMode(BATTERY_VOLTAGE, INPUT);
   pinMode(ENGINE_CHECK, INPUT);
@@ -51,7 +53,10 @@ void setup() {
   //initialization SD card
   Serial.print(F("Initializing SD card...\n"));
   if (!SD.begin(4)) Serial.print(F("Card failed, or not present\n\n"));
-  else Serial.print(F("Card initialized\n\n"));
+  else {
+    Serial.print(F("Card initialized\n\n"));
+    sd_is_working = true;
+  }
   dataFile = SD.open("datalog.dat", FILE_WRITE);
 
   //initialization and calibration MPU
@@ -63,23 +68,38 @@ void setup() {
 
   //getting command from bluetooth
   Serial.print(F("Waiting start command\n"));
-  bool done = false;
-  while (!done) {
-    while (!mySerial.available()) {}
-    String line = read_from_bluetooth();
-    clean_buffer();
-    if (line != F("49")) Serial.print(line + "\n");
-    else done = true;
+  bool launch = false;
+  while (!launch) {
+    bool done = false;
+    while (!done) {
+      while (!mySerial.available()) {}
+      String line = read_from_bluetooth();
+      clean_buffer();
+      if (line != F("49")) Serial.print(line + "\n");
+      else done = true;
+    }
+  
+    //checking rokkit
+    if (check_rokkit() == 1) {
+      mySerial.write("1"); //low voltage
+      Serial.println(F("Low voltage\nTry again"));
+    } else if (check_rokkit() == 2) {
+      mySerial.write("2"); //engine broken
+      Serial.println(F("Engine is broken\nTry again"));
+    } else if (!sd_is_working) {
+      mySerial.write("3"); //sd doesn't work
+      launch = true;
+      Serial.println(F("SD doesn't work"));
+    } else {
+      mySerial.write("0");
+      launch = true;
+      Serial.println(F("Rocket launched"));
+    }
   }
-
-  //checking rokkit
-  if (check_rokkit() == 1) mySerial.write("1");
-  else if (check_rokkit() == 2) mySerial.write("2");
-  else mySerial.write("0");
-
   //getting time
   current_time = millis();
   start_time = millis();
+  digitalWrite(ENGINE_START, HIGH);
 }
 
 void loop() {
@@ -97,7 +117,11 @@ void loop() {
   if (millis() - start_time > 30000) {
     dataFile.close();
     Serial.println("1");
+    digitalWrite(HEADLIGHT, HIGH);
     delay(100000);
+  }
+  if (millis() - start_time > 10000) {
+    digitalWrite(ENGINE_START, LOW);
   }
   delay(400);
 }
