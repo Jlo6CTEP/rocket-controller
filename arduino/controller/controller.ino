@@ -17,7 +17,7 @@ File dataFile;
 bool sd_is_working = false;
 SoftwareSerial mySerial(RX, TX);
 unsigned long current_time, start_time, delay_time;
-float temperature, altitude, pressure, max_altitude;
+float temperature, altitude, pressure, max_altitude, alt_offset;
 iarduino_Pressure_BMP sensor; 
 MPU9255 mpu;
 
@@ -56,12 +56,13 @@ void setup() {
   Serial.print(F("Initialization MPU\n"));
   if (mpu.init()) Serial.print(F("Initialization failed\n\n"));
   else Serial.print(F("MPU initialized\n\n"));
+  alt_calibration();
   Serial.print(F("Calibarting MPU\n\n"));
   adjust_offset(); //calibrating MPU
 
   //getting command from bluetooth
   Serial.print(F("Waiting start command\n"));
-  bool launch = false;
+  bool launch = true;
   while (!launch) {
     bool done = false;
     while (!done) {
@@ -73,6 +74,14 @@ void setup() {
     }
   
     //checking rokkit
+    /*Error codes
+     * 1 - low voltage
+     * 2 - Engine 1 failure
+     * 3 - SD failure
+     * 4 - Parachute 1 fauilure
+     * 0 - success
+     * 
+     */
     if (analogRead(BATTERY_VOLTAGE) / 1023.0 * 5.0 < THRESHOLD_VOLTAGE) {
       mySerial.write("1"); //low voltage
       Serial.println(F("Low voltage\nTry again"));
@@ -95,7 +104,8 @@ void setup() {
   start_time = millis();
   //digitalWrite(ENGINE_START, HIGH);
 }
-
+int k = 0;
+float summ1 = 0;
 void loop() {
   update_data();
   Serial.print("Accel: "); 
@@ -106,18 +116,34 @@ void loop() {
   Serial.print(String(process_magnetic_flux(mpu.mx,mpu.mx_sensitivity)) + " "); Serial.print(String(process_magnetic_flux(mpu.my,mpu.my_sensitivity)) + " "); Serial.print(String(process_magnetic_flux(mpu.mz,mpu.mz_sensitivity)));
   Serial.print("  Temp: "); Serial.print(temperature);
   Serial.print("  Press: "); Serial.print(pressure);
-  Serial.print("  Alt: "); Serial.println(altitude);
+  Serial.print("  Alt: "); Serial.println(altitude - alt_offset);
   write_to_sd();
-//  if (millis() - start_time > 30000) {
-//    dataFile.close();
-//    Serial.println("1");
-//    digitalWrite(HEADLIGHT, HIGH);
-//    delay(100000);
-//  }
+  summ1 += altitude - alt_offset;
+  k++;
+  if (millis() - start_time > 30000) {
+    dataFile.close();
+    Serial.println("1");
+    Serial.print(summ1 / (float)k);
+    //digitalWrite(HEADLIGHT, HIGH);
+    delay(100000);
+  }
 //  if (millis() - start_time > 10000) {
 //    digitalWrite(ENGINE_START, LOW);
 //  }
   delay(400);
+}
+
+void alt_calibration() {
+  float summ = 0;
+  int i = 0;
+  unsigned int current_start_time = millis();
+  while (millis() - current_start_time < 5000) {
+    sensor.read(2);
+    summ += sensor.altitude;
+    ++i;
+  }
+  alt_offset = sqrt(summ / (float)i);
+  Serial.print(alt_offset);
 }
 
 void update_data() {
@@ -131,11 +157,12 @@ void update_data() {
   if (altitude > max_altitude) {
     max_altitude = altitude;
   } else if (max_altitude - altitude >= 1.5) {
-    digitalWrite(HEADLIGHT, HIGH);
+    digitalWrite(HEADLIGHT, HIGH); //deploy chute
   }
   delay_time = millis() - current_time;
   current_time = millis();
 }
+
 
 
 float process_acceleration(int input, scales sensor_scale ) {
@@ -268,18 +295,18 @@ void adjust_offset()
     mpu.read_gyro();
 
     //-------- adjust ----------
-    if(mpu.ax > 0 and update_aX) --aX_offset; //if X axis readings are greater than 0 decrement offset
-    if(mpu.ax < 0 and update_aX) ++aX_offset; //increment offset
-    if(mpu.ay > 0 and update_aY) --aY_offset; //if X axis readings are greater than 0 decrement offset
-    if(mpu.ay < 0 and update_aY) ++aY_offset; //increment offset
-    if(mpu.az > 0 and update_aZ) --aZ_offset; //if X axis readings are greater than 0 decrement offset
-    if(mpu.az < 0 and update_aZ) ++aZ_offset; //increment offset
-    if(mpu.gx > 0 and update_gX) --gX_offset; //if X axis readings are greater than 0 decrement offset
-    if(mpu.gx < 0 and update_gX) ++gX_offset; //increment offset
-    if(mpu.gy > 0 and update_gY) --gY_offset; //if X axis readings are greater than 0 decrement offset
-    if(mpu.gy < 0 and update_gY) ++gY_offset; //increment offset
-    if(mpu.gz > 0 and update_gZ) --gZ_offset; //if X axis readings are greater than 0 decrement offset
-    if(mpu.gz < 0 and update_gZ) ++gZ_offset; //increment offset
+    if(mpu.ax > 0 and update_aX) --aX_offset;
+    else if(mpu.ax < 0 and update_aX) ++aX_offset;
+    if(mpu.ay > 0 and update_aY) --aY_offset;
+    else if(mpu.ay < 0 and update_aY) ++aY_offset;
+    if(mpu.az > 0 and update_aZ) --aZ_offset;
+    else if(mpu.az < 0 and update_aZ) ++aZ_offset;
+    if(mpu.gx > 0 and update_gX) --gX_offset;
+    else if(mpu.gx < 0 and update_gX) ++gX_offset;
+    if(mpu.gy > 0 and update_gY) --gY_offset;
+    else if(mpu.gy < 0 and update_gY) ++gY_offset;
+    if(mpu.gz > 0 and update_gZ) --gZ_offset; 
+    else if(mpu.gz < 0 and update_gZ) ++gZ_offset;
 
     //set new offset
     if(update_gX) mpu.set_gyro_offset(X_axis, gX_offset);
@@ -290,13 +317,13 @@ void adjust_offset()
     if(update_aZ) mpu.set_acc_offset(Z_axis, aZ_offset);
 
     //------ Check if each axis is adjusted -----
-    const short maximum_error = 5; //set maximum deviation to 5 LSB
-    if((abs(mpu.ax) - maximum_error) <= 0) update_aX = false;
-    if((abs(mpu.ay) - maximum_error) <= 0) update_aY = false;
-    if((abs(mpu.az) - maximum_error) <= 0) update_aZ = false;
-    if((abs(mpu.gx) - maximum_error) <= 0) update_gX = false;
-    if((abs(mpu.gy) - maximum_error) <= 0) update_gY = false;
-    if((abs(mpu.gz) - maximum_error) <= 0) update_gZ = false;
+    const short maximum_error = 0.01;
+    if(abs(mpu.ax - maximum_error) < 0.11) update_aX = false;
+    if(abs(mpu.ay - maximum_error) < 0.11) update_aY = false;
+    if(abs(mpu.az - maximum_error) < 0.11) update_aZ = false;
+    if(abs(mpu.gx - maximum_error) < 0.01) update_gX = false;
+    if(abs(mpu.gy - maximum_error) < 0.01) update_gY = false;
+    if(abs(mpu.gz - maximum_error) < 0.01) update_gZ = false;
 
     delay(10);
   }
